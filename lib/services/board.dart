@@ -1,6 +1,4 @@
 import 'package:rxdart/rxdart.dart';
-import 'dart:math' as math;
-
 import 'package:tic_tac/services/provider.dart';
 import 'package:tic_tac/services/sound.dart';
 
@@ -8,6 +6,15 @@ final soundService = locator<SoundService>();
 
 enum BoardState { Done, Play }
 enum GameMode { Solo, Multi }
+
+class Move {
+  int score;
+  int col;
+  int row;
+
+  Move({this.score = 0, this.row, this.col});
+}
+
 
 class BoardService {
   BehaviorSubject<List<List<String>>> _board$;
@@ -40,47 +47,125 @@ class BoardService {
     _board$.add(currentBoard);
     switchPlayer(player);
 
-    bool isWinner = _checkWinner(i, j);
+    bool isWinner = ( _checkWinner(_board$.value) == 'X' || _checkWinner(_board$.value) == 'O' );
 
     if (isWinner) {
       _updateScore(player);
       _boardState$.add(MapEntry(BoardState.Done, player));
       return;
-    } else if (isBoardFull()) {
+    } else if (isBoardFull(currentBoard)) {
       _boardState$.add(MapEntry(BoardState.Done, null));
     } else if (_gameMode$.value == GameMode.Solo) {
       botMove();
     }
   }
+  bool isEndState(List<List<String>> board) {
+    var temp =  _checkWinner(board);
+    if (temp == 'N')
+      return false;
+    return true;
+  }
+
+  int getScore(List<List<String>> board, int depth) {
+    String res = _checkWinner(board);
+    //print(board); print(res);
+    if (res == 'X')
+      return 10 - depth ;
+    else if (res == 'O')
+      return -10 + depth;
+    return 0; //tie
+  }
+
+
+   maximise(List<List<String>> board, int depth ) {
+     if ( isEndState(board) ) {
+       return Move(score: getScore(board, depth), row: -1, col: -1);
+     }
+     Move max = new Move(score: -1000, row: -1, col: -1);
+
+       for (int i = 0; i < 3; i++) {
+         for (int j = 0; j < 3; j++) {
+           // Is the spot available?
+           if (board[i][j] == ' ') {
+             board[i][j] = 'X';
+             Move curr = minimise(board, depth + 1);
+             if (depth ==0 ) {
+               print('$i, $j at depth $depth:') ; print(curr.score  );
+             }
+
+             if (curr.score > max.score) {
+               max.score = curr.score;
+               max.row = i;
+               max.col = j;
+             }
+             board[i][j] = ' ';
+           }
+         }
+       }
+       return max;
+   }
+
+   minimise(List<List<String>> board, int depth ) {
+     if (isEndState(board) ) {
+       return Move(score: getScore(board, depth), row: -1, col: -1);
+     }
+
+     Move min = new Move(score: 1000, row: -1, col:-1);
+     //if (depth == 0 ) print(board);
+
+    // print(board);
+
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          // Is the spot available?
+          if (board[i][j] == ' ') {
+
+            board[i][j] = 'O';
+
+            Move curr = maximise(board, depth + 1);
+              if (depth ==0 ) {
+                print('$i, $j at depth $depth:') ; print(curr.score  );
+              }
+
+            if (curr.score < min.score) {
+              min.score = curr.score;
+              min.row = i;
+              min.col = j;
+            }
+            board[i][j] = ' ';
+          }
+        }
+      }
+     return min;
+  }
 
   botMove() {
     String player = _player$.value;
     List<List<String>> currentBoard = _board$.value;
-    List<List<int>> temp = List<List<int>>();
-    for (var i = 0; i < currentBoard.length; i++) {
-      for (var j = 0; j < currentBoard[i].length; j++) {
-        if (currentBoard[i][j] == " ") {
-          temp.add([i, j]);
-        }
-      }
+
+    Move best;
+
+    //maximise player X and minimise player O
+
+    if (player == 'X' ) {
+      best = maximise(currentBoard, 0);
+    }
+    else {
+      best = minimise(currentBoard, 0);
     }
 
-    math.Random rnd = new math.Random();
-    int r = rnd.nextInt(temp.length);
-    int i = temp[r][0];
-    int j = temp[r][1];
 
-    currentBoard[i][j] = player;
+    currentBoard[best.row][best.col] = player;
     _board$.add(currentBoard);
     switchPlayer(player);
 
-    bool isWinner = _checkWinner(i, j);
+    bool isWinner = ( _checkWinner(_board$.value) == 'X' || _checkWinner(_board$.value) == 'O') ;
 
     if (isWinner) {
       _updateScore(player);
       _boardState$.add(MapEntry(BoardState.Done, player));
       return;
-    } else if (isBoardFull()) {
+    } else if (isBoardFull(currentBoard)) {
       _boardState$.add(MapEntry(BoardState.Done, null));
     }
   }
@@ -101,23 +186,41 @@ class BoardService {
     }
   }
 
-  bool _checkWinner(int x, int y) {
-    var currentBoard = _board$.value;
+  equals3(a, b, c) {
+    return a == b && b == c && a != ' ';
+  }
 
-    var col = 0, row = 0, diag = 0, rdiag = 0;
-    var n = currentBoard.length - 1;
-    var player = currentBoard[x][y];
-
-    for (int i = 0; i < currentBoard.length; i++) {
-      if (currentBoard[x][i] == player) col++;
-      if (currentBoard[i][y] == player) row++;
-      if (currentBoard[i][i] == player) diag++;
-      if (currentBoard[i][n - i] == player) rdiag++;
+  String _checkWinner(List<List<String>> board) {
+    String winner;
+    // Horizontal
+    for (int i = 0; i < 3; i++) {
+      if (equals3(board[i][0], board[i][1], board[i][2])) {
+        winner = board[i][0];
+        return winner;
+      }
     }
-    if (row == n + 1 || col == n + 1 || diag == n + 1 || rdiag == n + 1) {
-      return true;
+    // Vertical
+    for (int i = 0; i < 3; i++) {
+      if (equals3(board[0][i], board[1][i], board[2][i])) {
+        winner = board[0][i];
+        return winner;
+      }
     }
-    return false;
+    // Diagonal
+    if (equals3(board[0][0], board[1][1], board[2][2])) {
+      winner = board[0][0];
+      return winner;
+    }
+    if (equals3(board[2][0], board[1][1], board[0][2])) {
+      winner = board[2][0];
+      return winner;
+    }
+    for(int i=0; i<3; i++) {
+      for(int j=0; j<3; j++ ) {
+        if(board[i][j] == ' ') return 'N';
+      }
+    }
+    return 'T';
   }
 
   void setStart(String e) {
@@ -132,8 +235,9 @@ class BoardService {
     }
   }
 
-  bool isBoardFull() {
-    List<List<String>> board = _board$.value;
+  bool isBoardFull(List<List<String>> currentBoard) {
+
+    List<List<String>> board = currentBoard;
     int count = 0;
     for (var i = 0; i < board.length; i++) {
       for (var j = 0; j < board[i].length; j++) {
